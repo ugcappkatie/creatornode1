@@ -268,8 +268,10 @@ function LeadColumn({
 }) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const id = e.dataTransfer.getData("text/plain") || draggingId || "";
     if (!id) return;
+    // Update the lead status to match the column (including "Closed")
     onStatusChange(id, title);
   };
 
@@ -315,9 +317,12 @@ function LeadColumn({
         className="space-y-2"
         onDragOver={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           e.dataTransfer.dropEffect = "move";
         }}
         onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           setIsOver(false);
           handleDrop(e);
         }}

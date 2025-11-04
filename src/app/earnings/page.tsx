@@ -47,6 +47,7 @@ export default function EarningsPage() {
   const [editingEarning, setEditingEarning] = useState<Earning | null>(null);
   const [pendingDeleteEarningId, setPendingDeleteEarningId] = useState<string | null>(null);
   const [timeFrame, setTimeFrame] = useState<TimeFrame>("This Month");
+  const [, forceUpdate] = useState(0);
 
   const getDateRange = (frame: TimeFrame) => {
     const now = new Date();
@@ -143,8 +144,16 @@ export default function EarningsPage() {
       } catch {}
     };
 
+    const handleCurrencyUpdate = () => {
+      forceUpdate((prev) => prev + 1);
+    };
+
     window.addEventListener("projectsUpdated", handleProjectsUpdate);
-    return () => window.removeEventListener("projectsUpdated", handleProjectsUpdate);
+    window.addEventListener("currencyUpdated", handleCurrencyUpdate);
+    return () => {
+      window.removeEventListener("projectsUpdated", handleProjectsUpdate);
+      window.removeEventListener("currencyUpdated", handleCurrencyUpdate);
+    };
   }, []);
 
   useEffect(() => {

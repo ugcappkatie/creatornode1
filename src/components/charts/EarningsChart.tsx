@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, TooltipProps } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useEffect, useMemo, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -13,6 +13,7 @@ type ProjectLike = {
 
 export function EarningsChart() {
   const [projects, setProjects] = useState<ProjectLike[]>([]);
+  const [, forceUpdate] = useState(0);
 
   useEffect(() => {
     try {
@@ -27,8 +28,16 @@ export function EarningsChart() {
       } catch {}
     };
     
+    const handleCurrencyUpdate = () => {
+      forceUpdate((prev) => prev + 1);
+    };
+    
     window.addEventListener("projectsUpdated", handleUpdate);
-    return () => window.removeEventListener("projectsUpdated", handleUpdate);
+    window.addEventListener("currencyUpdated", handleCurrencyUpdate);
+    return () => {
+      window.removeEventListener("projectsUpdated", handleUpdate);
+      window.removeEventListener("currencyUpdated", handleCurrencyUpdate);
+    };
   }, []);
 
   const now = new Date();
@@ -60,9 +69,10 @@ export function EarningsChart() {
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
-  const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
-    if (!active || !payload || !payload.length) return null;
-    const amount = payload[0].value || 0;
+  const CustomTooltip = (props: { active?: boolean; payload?: Array<{ value?: number }>; label?: string | number }) => {
+    if (!props.active || !props.payload || !props.payload.length) return null;
+    const amount = props.payload[0]?.value || 0;
+    const label = props.label;
     return (
       <div className="rounded-[10px] bg-white border border-[#efefef] px-3 py-2 text-[12px]">
         <div className="font-medium">{ordinal(Number(label))} {monthShort}</div>

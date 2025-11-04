@@ -130,10 +130,6 @@ export default function ConnectPage() {
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [selectedThread, setSelectedThread] = useState<Post | null>(null);
   const [isAddPostOpen, setIsAddPostOpen] = useState(false);
-  const [threadWidth, setThreadWidth] = useState(400);
-  const [postsWidth, setPostsWidth] = useState(600);
-  const [isResizing, setIsResizing] = useState(false);
-  const [isResizingPosts, setIsResizingPosts] = useState(false);
   const [viewingProfile, setViewingProfile] = useState<string | null>(null);
   const [replies, setReplies] = useState<ThreadReply[]>([]);
   const [replyText, setReplyText] = useState("");
@@ -328,123 +324,97 @@ export default function ConnectPage() {
                 <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
                 <input
                   type="text"
-                  placeholder="Find posts..."
+                  placeholder="Search posts..."
                   className="pl-10 pr-4 py-2 rounded-full border border-[#e5e5e5] bg-white text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
                 />
               </div>
-              <button className="h-9 w-9 rounded-full border border-[#e5e5e5] bg-white hover:bg-neutral-50 flex items-center justify-center text-neutral-700">
-                <PersonIcon className="h-4 w-4" />
-              </button>
             </div>
           </div>
 
-          <div className="flex gap-6">
-            {/* Left Sidebar - Categories */}
-            <aside className="w-[18%] shrink-0">
-              <nav className="flex flex-col gap-1">
-                {categories.map((cat) => {
-                  const Icon = cat.icon;
-                  return (
-                    <button
-                      key={cat.label}
-                      onClick={() => setSelectedCategory(cat.label)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-[10px] px-3 py-2 text-sm text-left transition-colors whitespace-nowrap truncate",
-                        selectedCategory === cat.label
-                          ? "bg-[#E5CCF7] text-black font-medium"
-                          : "text-neutral-700 hover:bg-neutral-100"
-                      )}
-                      title={cat.label}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{cat.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </aside>
-
+          <div className="flex gap-6 flex-1 min-w-0">
             {/* Main Content */}
-            <div className="flex shrink-0 min-w-0">
-              <div style={{ width: `${postsWidth}px` }} className="min-w-0 shrink-0">
-                <Card padded={false} className="h-full flex flex-col">
-                  <div className="px-6 pt-6 pb-4 border-b border-[#efefef] flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      {(["Hot", "Newest"] as SortType[]).map((sort) => (
-                        <button
-                          key={sort}
-                          onClick={() => setSortType(sort)}
-                          className={cn(
-                            "px-4 py-2 text-sm font-medium transition-colors",
-                            sortType === sort
-                              ? "text-black border-b-2 border-black"
-                              : "text-neutral-500 hover:text-neutral-700"
-                          )}
-                        >
-                          {sort}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setIsAddPostOpen(true)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-neutral-800 transition-colors"
-                    >
-                      <PlusIcon className="h-4 w-4" />
-                      Add Post
-                    </button>
-                  </div>
+            <div className="flex-[3] min-w-0 flex">
+              <Card padded={false} className="h-full flex flex-col w-full">
+                <div className="flex h-full">
+                  {/* Categories Sidebar - Inside Card */}
+                  <aside className="shrink-0 border-r border-[#efefef] bg-white min-w-fit rounded-l-[16px]">
+                    <nav className="flex flex-col gap-1 p-4">
+                      {categories.map((cat) => {
+                        const Icon = cat.icon;
+                        return (
+                          <button
+                            key={cat.label}
+                            onClick={() => setSelectedCategory(cat.label)}
+                            className={cn(
+                              "flex items-center gap-2 rounded-[10px] px-3 py-2 text-sm text-left transition-colors whitespace-nowrap w-full",
+                              selectedCategory === cat.label
+                                ? "bg-[#E5CCF7] text-black font-medium"
+                                : "text-neutral-700 hover:bg-neutral-100"
+                            )}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span>{cat.label}</span>
+                          </button>
+                        );
+                      })}
+                    </nav>
+                  </aside>
 
-                  <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                    {filteredPosts.map((post) => (
-                      <PostCard
-                        key={post.id}
-                        post={post}
-                        isSelected={selectedThread?.id === post.id}
-                        onSelect={() => setSelectedThread(post)}
-                        onProfileClick={(author) => setViewingProfile(author)}
-                        onVote={(voteType) => handleVote(post.id, voteType)}
-                        replyCount={replies.filter(r => r.postId === post.id).length || post.replyCount}
-                      />
-                    ))}
-                    {filteredPosts.length === 0 && (
-                      <div className="text-center py-12 text-neutral-500">
-                        No posts in this category yet
+                  {/* Posts Content */}
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <div className="px-6 pt-6 pb-4 border-b border-[#efefef] flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        {(["Hot", "Newest"] as SortType[]).map((sort) => (
+                          <button
+                            key={sort}
+                            onClick={() => setSortType(sort)}
+                            className={cn(
+                              "px-4 py-2 text-sm font-medium transition-colors",
+                              sortType === sort
+                                ? "text-black border-b-2 border-black"
+                                : "text-neutral-500 hover:text-neutral-700"
+                            )}
+                          >
+                            {sort}
+                          </button>
+                        ))}
                       </div>
-                    )}
+                      <button
+                        onClick={() => setIsAddPostOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-neutral-800 transition-colors"
+                      >
+                        <PlusIcon className="h-4 w-4" />
+                        Add Post
+                      </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {filteredPosts.map((post) => (
+                        <PostCard
+                          key={post.id}
+                          post={post}
+                          isSelected={selectedThread?.id === post.id}
+                          onSelect={() => setSelectedThread(post)}
+                          onProfileClick={(author) => setViewingProfile(author)}
+                          onVote={(voteType) => handleVote(post.id, voteType)}
+                          replyCount={replies.filter(r => r.postId === post.id).length || post.replyCount}
+                        />
+                      ))}
+                      {filteredPosts.length === 0 && (
+                        <div className="text-center py-12 text-neutral-500">
+                          No posts in this category yet
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </Card>
-              </div>
-              {/* Resize Handle for Posts */}
-              <div
-                className="w-1 bg-neutral-200 hover:bg-neutral-300 cursor-col-resize transition-colors shrink-0"
-                onMouseDown={(e) => {
-                  setIsResizingPosts(true);
-                  const startX = e.clientX;
-                  const startWidth = postsWidth;
-
-                  const handleMouseMove = (e: MouseEvent) => {
-                    const diff = e.clientX - startX;
-                    const newWidth = Math.min(Math.max(300, startWidth + diff), 1000);
-                    setPostsWidth(newWidth);
-                  };
-
-                  const handleMouseUp = () => {
-                    setIsResizingPosts(false);
-                    document.removeEventListener("mousemove", handleMouseMove);
-                    document.removeEventListener("mouseup", handleMouseUp);
-                  };
-
-                  document.addEventListener("mousemove", handleMouseMove);
-                  document.addEventListener("mouseup", handleMouseUp);
-                }}
-              />
+                </div>
+              </Card>
             </div>
 
             {/* Right Sidebar - Thread View */}
             {selectedThread && (
-              <div className="flex shrink-0 min-w-0">
-                <aside style={{ width: `${threadWidth}px` }} className="min-w-0 shrink-0">
-                  <Card padded={false} className="h-full flex flex-col">
+              <div className="flex-[2] min-w-0 flex">
+                <Card padded={false} className="h-full flex flex-col w-full">
                     <div className="px-4 py-3 border-b border-[#efefef] flex items-center justify-between">
                       <h2 className="text-base font-semibold">Thread</h2>
                       <button
@@ -559,31 +529,7 @@ export default function ConnectPage() {
                       </div>
                     </div>
                   </Card>
-                </aside>
-                <div
-                  className="w-1 bg-neutral-200 hover:bg-neutral-300 cursor-col-resize transition-colors shrink-0"
-                  onMouseDown={(e) => {
-                    setIsResizing(true);
-                    const startX = e.clientX;
-                    const startWidth = threadWidth;
-
-                    const handleMouseMove = (e: MouseEvent) => {
-                      const diff = startX - e.clientX;
-                      const newWidth = Math.min(Math.max(300, startWidth + diff), 800);
-                      setThreadWidth(newWidth);
-                    };
-
-                    const handleMouseUp = () => {
-                      setIsResizing(false);
-                      document.removeEventListener("mousemove", handleMouseMove);
-                      document.removeEventListener("mouseup", handleMouseUp);
-                    };
-
-                    document.addEventListener("mousemove", handleMouseMove);
-                    document.addEventListener("mouseup", handleMouseUp);
-                  }}
-                />
-              </div>
+                </div>
             )}
           </div>
 
@@ -610,20 +556,7 @@ export default function ConnectPage() {
 }
 
 function PostCard({ post, isSelected, onSelect, onProfileClick, onVote, replyCount }: { post: Post; isSelected: boolean; onSelect: () => void; onProfileClick: (author: string) => void; onVote: (voteType: "up" | "down") => void; replyCount: number }) {
-  const [showFullContent, setShowFullContent] = useState(false);
-  const contentRef = React.useRef<HTMLParagraphElement>(null);
-  const [needsTruncation, setNeedsTruncation] = useState(false);
-
-  useEffect(() => {
-    if (contentRef.current && post.content) {
-      const lineHeight = parseInt(window.getComputedStyle(contentRef.current).lineHeight);
-      const maxHeight = lineHeight * 2;
-      setNeedsTruncation(contentRef.current.scrollHeight > maxHeight);
-    }
-  }, [post.content]);
-
   const displayContent = post.content || "";
-  const shouldTruncate = needsTruncation && !showFullContent;
 
   return (
     <div
@@ -638,26 +571,9 @@ function PostCard({ post, isSelected, onSelect, onProfileClick, onVote, replyCou
       </h3>
       {displayContent && (
         <div className="mb-2">
-          <p
-            ref={contentRef}
-            className={cn(
-              "text-sm text-neutral-600 break-words min-w-0",
-              shouldTruncate && "line-clamp-2"
-            )}
-          >
+          <p className="text-sm text-neutral-600 break-words min-w-0 line-clamp-2">
             {displayContent}
           </p>
-          {needsTruncation && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowFullContent(!showFullContent);
-              }}
-              className="text-xs text-blue-600 hover:text-blue-700 mt-1"
-            >
-              {showFullContent ? "See less" : "See more..."}
-            </button>
-          )}
         </div>
       )}
       <div className="flex items-center justify-between gap-2">

@@ -44,6 +44,7 @@ function dueBadge(dueDateIso: string) {
 
 export function ActiveProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [, forceUpdate] = useState(0);
 
   useEffect(() => {
     try {
@@ -58,8 +59,16 @@ export function ActiveProjects() {
       } catch {}
     };
     
+    const handleCurrencyUpdate = () => {
+      forceUpdate((prev) => prev + 1);
+    };
+    
     window.addEventListener("projectsUpdated", handleUpdate);
-    return () => window.removeEventListener("projectsUpdated", handleUpdate);
+    window.addEventListener("currencyUpdated", handleCurrencyUpdate);
+    return () => {
+      window.removeEventListener("projectsUpdated", handleUpdate);
+      window.removeEventListener("currencyUpdated", handleCurrencyUpdate);
+    };
   }, []);
 
   const activeSorted = useMemo(() => {

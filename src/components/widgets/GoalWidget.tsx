@@ -15,14 +15,26 @@ export function GoalWidget() {
   const [projects, setProjects] = useState<ProjectLike[]>([]);
   const [editing, setEditing] = useState(false);
   const [targetInput, setTargetInput] = useState<string>("");
+  const [mounted, setMounted] = useState(false);
+  const [, forceUpdate] = useState(0);
 
   const goalKey = `cc_goal_${year}_${String(month + 1).padStart(2, "0")}`;
-  const [target, setTarget] = useState<number>(() => {
-    try { const raw = localStorage.getItem(goalKey); if (raw) return Number(raw) || 1500; } catch {}
-    return 1500;
-  });
+  // Always start with default value to avoid hydration mismatch
+  const [target, setTarget] = useState<number>(1500);
 
   useEffect(() => {
+    // Load from localStorage only after component mounts (client-side only)
+    setMounted(true);
+    try {
+      const raw = localStorage.getItem(goalKey);
+      if (raw) {
+        const value = Number(raw);
+        if (!isNaN(value) && value > 0) {
+          setTarget(value);
+        }
+      }
+    } catch {}
+
     try {
       const raw = localStorage.getItem("cc_projects");
       if (raw) setProjects(JSON.parse(raw));
@@ -35,13 +47,24 @@ export function GoalWidget() {
       } catch {}
     };
     
+    const handleCurrencyUpdate = () => {
+      forceUpdate((prev) => prev + 1);
+    };
+    
     window.addEventListener("projectsUpdated", handleUpdate);
-    return () => window.removeEventListener("projectsUpdated", handleUpdate);
-  }, []);
+    window.addEventListener("currencyUpdated", handleCurrencyUpdate);
+    return () => {
+      window.removeEventListener("projectsUpdated", handleUpdate);
+      window.removeEventListener("currencyUpdated", handleCurrencyUpdate);
+    };
+  }, [goalKey]);
 
   useEffect(() => {
-    try { localStorage.setItem(goalKey, String(target)); } catch {}
-  }, [target, goalKey]);
+    // Only save to localStorage after mount to avoid hydration issues
+    if (mounted) {
+      try { localStorage.setItem(goalKey, String(target)); } catch {}
+    }
+  }, [target, goalKey, mounted]);
 
   const completed = useMemo(() => {
     let sum = 0;
@@ -65,7 +88,7 @@ export function GoalWidget() {
   const progressLength = (circumference * percent) / 100;
 
   return (
-    <Card>
+    <Card className="col-span-1">
       <CardHeader className="flex items-center justify-between">
         <CardTitle>{monthName} Goal</CardTitle>
         <button

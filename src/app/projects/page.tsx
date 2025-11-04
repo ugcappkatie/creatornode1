@@ -17,7 +17,10 @@ import {
   ScissorsIcon,
   CheckCircledIcon,
   RocketIcon,
-  DragHandleDots2Icon
+  DragHandleDots2Icon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  DownloadIcon
 } from "@radix-ui/react-icons";
 
 type ProjectStatus = "Plan & Film" | "To Edit" | "In Approval" | "Completed";
@@ -127,6 +130,14 @@ export default function ProjectsPage() {
       "Completed": [],
     };
     for (const p of projects) map[p.status].push(p);
+    // Sort each status group by due date (nearest first)
+    for (const status in map) {
+      map[status as ProjectStatus].sort((a, b) => {
+        const dateA = new Date(a.dueDate).getTime();
+        const dateB = new Date(b.dueDate).getTime();
+        return dateA - dateB;
+      });
+    }
     return map;
   }, [projects]);
 
@@ -147,14 +158,21 @@ export default function ProjectsPage() {
     try {
       const raw = localStorage.getItem("cc_projects");
       if (raw) {
-        const parsed = JSON.parse(raw) as any[];
-        const migrated = parsed.map((p) => ({
-          ...p,
-          signedDate: p.signedDate || p.dueDate || new Date().toISOString().slice(0, 10),
-          paymentStatus: p.paymentStatus === "Payment received" ? "Received" : 
-                       p.paymentStatus === "Payment pending" || p.paymentStatus === "Awaiting payment" || p.paymentStatus === "Invoice sent" ? "Pending" :
-                       p.paymentStatus || "Pending",
-        }));
+        const parsed = JSON.parse(raw) as Array<Partial<Project> & { paymentStatus?: string }>;
+        const migrated = parsed.map((p) => {
+          const oldPaymentStatus = p.paymentStatus as string | undefined;
+          let newPaymentStatus: PaymentStatus = "Pending";
+          if (oldPaymentStatus === "Payment received" || oldPaymentStatus === "Received") {
+            newPaymentStatus = "Received";
+          } else if (oldPaymentStatus === "Pending") {
+            newPaymentStatus = "Pending";
+          }
+          return {
+            ...p,
+            signedDate: p.signedDate || p.dueDate || new Date().toISOString().slice(0, 10),
+            paymentStatus: newPaymentStatus,
+          };
+        });
         setProjects(migrated as Project[]);
       }
     } catch {}
@@ -275,7 +293,9 @@ export default function ProjectsPage() {
                     }} 
                     onDelete={(id) => setPendingDeleteId(id)} 
                     onCardDragStart={(id) => setDraggingId(id)} 
-                    onCardDragEnd={() => setDraggingId(null)} 
+                    onCardDragEnd={() => {
+                      setTimeout(() => setDraggingId(null), 0);
+                    }} 
                     onOpen={(p) => setViewingProject(p)} 
                   />
                 ))}
@@ -352,94 +372,326 @@ export default function ProjectsPage() {
   );
 }
 
+type SortOption = "dueDate" | "status" | "compensation" | "name" | "leadSource";
+type SortDirection = "asc" | "desc";
+
 function ListView({ projects, onStatusChange, onDelete, onOpen }: { projects: Project[]; onStatusChange: (id: string, next: ProjectStatus) => void; onDelete: (id: string) => void; onOpen: (p: Project) => void }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const statuses: ProjectStatus[] = ["Plan & Film", "To Edit", "In Approval", "Completed"];
-  const grouped: Record<ProjectStatus, Project[]> = {
-    "Plan & Film": [],
-    "To Edit": [],
-    "In Approval": [],
-    "Completed": [],
-  };
-  for (const p of projects) grouped[p.status].push(p);
-  for (const s of statuses) grouped[s].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const [sortBy, setSortBy] = useState<SortOption>("dueDate");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [activeIsOver, setActiveIsOver] = useState(false);
+  const [completedIsOver, setCompletedIsOver] = useState(false);
 
-  const getStatusHeaderColor = (status: ProjectStatus) => {
-    switch (status) {
-      case "Plan & Film": return "bg-purple-50 border-purple-100";
-      case "To Edit": return "bg-amber-50 border-amber-100";
-      case "In Approval": return "bg-blue-50 border-blue-100";
-      case "Completed": return "bg-green-50 border-green-100";
-      default: return "bg-neutral-50";
+  const handleSort = (column: SortOption) => {
+    if (sortBy === column) {
+      // Toggle direction if clicking the same column
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      // Set new column and default to ascending
+      setSortBy(column);
+      setSortDirection("asc");
     }
   };
 
-  function handleSectionDrop(e: React.DragEvent<HTMLDivElement>, status: ProjectStatus) {
+  const activeProjects = useMemo(() => {
+    const filtered = projects.filter(p => p.status !== "Completed");
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      let result = 0;
+      switch (sortBy) {
+        case "dueDate": {
+          const dateA = new Date(a.dueDate).getTime();
+          const dateB = new Date(b.dueDate).getTime();
+          result = dateA - dateB;
+          break;
+        }
+        case "status": {
+          const statusOrder: Record<ProjectStatus, number> = {
+            "Plan & Film": 0,
+            "To Edit": 1,
+            "In Approval": 2,
+            "Completed": 3,
+          };
+          result = statusOrder[a.status] - statusOrder[b.status];
+          break;
+        }
+        case "compensation": {
+          result = a.compensation - b.compensation;
+          break;
+        }
+        case "name": {
+          result = a.name.localeCompare(b.name);
+          break;
+        }
+        case "leadSource": {
+          result = a.leadSource.localeCompare(b.leadSource);
+          break;
+        }
+        default:
+          return 0;
+      }
+      return sortDirection === "asc" ? result : -result;
+    });
+    return sorted;
+  }, [projects, sortBy, sortDirection]);
+
+  const completedProjects = useMemo(() => {
+    const filtered = projects.filter(p => p.status === "Completed");
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      let result = 0;
+      switch (sortBy) {
+        case "dueDate": {
+          const dateA = new Date(a.dueDate).getTime();
+          const dateB = new Date(b.dueDate).getTime();
+          result = dateA - dateB;
+          break;
+        }
+        case "status": {
+          const statusOrder: Record<ProjectStatus, number> = {
+            "Plan & Film": 0,
+            "To Edit": 1,
+            "In Approval": 2,
+            "Completed": 3,
+          };
+          result = statusOrder[a.status] - statusOrder[b.status];
+          break;
+        }
+        case "compensation": {
+          result = a.compensation - b.compensation;
+          break;
+        }
+        case "name": {
+          result = a.name.localeCompare(b.name);
+          break;
+        }
+        case "leadSource": {
+          result = a.leadSource.localeCompare(b.leadSource);
+          break;
+        }
+        default:
+          return 0;
+      }
+      return sortDirection === "asc" ? result : -result;
+    });
+    return sorted;
+  }, [projects, sortBy, sortDirection]);
+
+  const getStatusColor = (status: ProjectStatus) => {
+    switch (status) {
+      case "Plan & Film": return "bg-purple-100 text-purple-700 border-purple-200";
+      case "To Edit": return "bg-amber-100 text-amber-700 border-amber-200";
+      case "In Approval": return "bg-blue-100 text-blue-700 border-blue-200";
+      case "Completed": return "bg-green-100 text-green-700 border-green-200";
+      default: return "bg-neutral-100 text-neutral-700 border-neutral-200";
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetStatus: "Active" | "Completed") => {
     e.preventDefault();
+    e.stopPropagation();
     const id = e.dataTransfer.getData("text/plain") || dragId || "";
     if (!id) return;
-    onStatusChange(id, status);
-    setDragId(null);
-  }
+    const project = projects.find(p => p.id === id);
+    if (!project) return;
+    
+    if (targetStatus === "Completed" && project.status !== "Completed") {
+      onStatusChange(id, "Completed");
+    } else if (targetStatus === "Active" && project.status === "Completed") {
+      // If dragging from Completed to Active, set to first active status
+      onStatusChange(id, "Plan & Film");
+    }
+    
+    // Clear dragging state after drop
+    setTimeout(() => setDragId(null), 0);
+  };
+
+  const renderProjectRow = (p: Project) => (
+    <div
+      key={p.id}
+      className={`grid grid-cols-5 items-center px-3 py-3 border-t border-[#f0f0f0] text-[14px] cursor-grab active:cursor-grabbing group hover:bg-neutral-50 ${
+        dragId === p.id ? "opacity-50" : ""
+      }`}
+      style={dragId === p.id ? {} : { opacity: '1', transform: 'scale(1)' }}
+      draggable
+      onMouseEnter={() => setHoveredId(p.id)}
+      onMouseLeave={() => setHoveredId(null)}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("select") || target.closest("button") || target.closest("a")) return;
+        onOpen(p);
+      }}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", p.id);
+        e.dataTransfer.effectAllowed = "move";
+        setDragId(p.id);
+      }}
+      onDragEnd={(e) => {
+        const element = e.currentTarget as HTMLElement;
+        // Immediately reset opacity to ensure full visibility
+        element.style.opacity = '1';
+        element.style.transform = '';
+        // Reset all child elements opacity as well
+        const children = element.querySelectorAll('*');
+        children.forEach((child) => {
+          (child as HTMLElement).style.opacity = '1';
+        });
+        setTimeout(() => setDragId(null), 0);
+      }}
+    >
+      <div className="font-medium flex items-center gap-2">
+        {(hoveredId === p.id || dragId === p.id) && (
+          <DragHandleDots2Icon className="h-4 w-4 text-neutral-400" />
+        )}
+        {p.name}
+      </div>
+      <div>
+        <select
+          value={p.status}
+          onChange={(e) => {
+            e.stopPropagation();
+            onStatusChange(p.id, e.target.value as ProjectStatus);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border cursor-pointer focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-1",
+            getStatusColor(p.status)
+          )}
+        >
+          <option value="Plan & Film">Plan & Film</option>
+          <option value="To Edit">To Edit</option>
+          <option value="In Approval">In Approval</option>
+          <option value="Completed">Completed</option>
+        </select>
+      </div>
+      <div>{formatCurrency(p.compensation)}</div>
+      <div>{new Date(p.dueDate).toLocaleDateString("en-GB", { month: "short", day: "numeric" })}</div>
+      <div>{p.leadSource}</div>
+    </div>
+  );
+
+  const SortableHeader = ({ column, label }: { column: SortOption; label: string }) => {
+    const isActive = sortBy === column;
+    return (
+      <div
+        className="flex items-center gap-1 cursor-pointer hover:text-neutral-900 select-none"
+        onClick={() => handleSort(column)}
+      >
+        <span>{label}</span>
+        {isActive && (
+          sortDirection === "asc" ? (
+            <ArrowUpIcon className="h-3 w-3" />
+          ) : (
+            <ArrowDownIcon className="h-3 w-3" />
+          )
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="p-4">
       <div className="space-y-4">
-        {statuses.map((status) => (
-          <div key={status} className="rounded-[12px] border border-[#efefef] overflow-hidden">
-            <div className={cn("flex items-center justify-between px-3 py-2 border-b", getStatusHeaderColor(status))}>
-              <div className="text-[13px] font-semibold">{status}</div>
-              <div className="text-[12px] text-neutral-500">{grouped[status].length} items</div>
-            </div>
-            <div
-              className={cn("min-h-[44px]", dragId ? "bg-neutral-50" : undefined)}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-              }}
-              onDrop={(e) => handleSectionDrop(e, status)}
-            >
-              <div className="grid grid-cols-5 px-3 py-2 text-[12px] text-neutral-600">
-                <div className="w-6"></div>
-                <div>Project</div>
-                <div>Compensation</div>
-                <div>Due</div>
-                <div>Lead Source</div>
-              </div>
-              {grouped[status].map((p) => (
-                <div
-                  key={p.id}
-                  className="grid grid-cols-5 items-center px-3 py-3 border-t border-[#f0f0f0] text-[14px] cursor-grab active:cursor-grabbing group hover:bg-neutral-50"
-                  draggable
-                  onMouseEnter={() => setHoveredId(p.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                  onClick={(e) => {
-                    const target = e.target as HTMLElement;
-                    if (target.closest("select") || target.closest("button") || target.closest("a")) return;
-                    onOpen(p);
-                  }}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/plain", p.id);
-                    e.dataTransfer.effectAllowed = "move";
-                    setDragId(p.id);
-                  }}
-                  onDragEnd={() => setDragId(null)}
-                >
-                  <div className="w-6 flex items-center justify-center">
-                    {(hoveredId === p.id || dragId === p.id) && (
-                      <DragHandleDots2Icon className="h-4 w-4 text-neutral-400" />
-                    )}
-                  </div>
-                  <div className="font-medium">{p.name}</div>
-                  <div>{formatCurrency(p.compensation)}</div>
-                  <div>{new Date(p.dueDate).toLocaleDateString("en-GB", { month: "short", day: "numeric" })}</div>
-                  <div>{p.leadSource}</div>
-                </div>
-              ))}
+        {/* Active Projects Section */}
+        <div
+          className={`rounded-[12px] border border-[#efefef] overflow-hidden bg-white ${
+            activeIsOver && dragId ? "outline outline-2 outline-neutral-200" : ""
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            setActiveIsOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setActiveIsOver(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setActiveIsOver(false);
+            handleDrop(e, "Active");
+          }}
+        >
+          <div className="px-3 py-2 bg-neutral-50 border-b border-[#efefef]">
+            <div className="flex items-center justify-between">
+              <div className="text-[13px] font-semibold">Active Projects</div>
+              <div className="text-[12px] text-neutral-500">{activeProjects.length} items</div>
             </div>
           </div>
-        ))}
+          <div className="grid grid-cols-5 px-3 py-2 text-[12px] text-neutral-600 bg-neutral-50 border-b border-[#efefef]">
+            <SortableHeader column="name" label="Project" />
+            <SortableHeader column="status" label="Status" />
+            <SortableHeader column="compensation" label="Compensation" />
+            <SortableHeader column="dueDate" label="Due" />
+            <SortableHeader column="leadSource" label="Lead Source" />
+          </div>
+          <div className="min-h-[44px]">
+            {activeProjects.map(renderProjectRow)}
+            {activeProjects.length === 0 && (
+              <div className="px-3 py-8 text-center text-sm text-neutral-500">
+                No active projects
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Completed Projects Section */}
+        <div
+          className={`rounded-[12px] border border-[#efefef] overflow-hidden bg-white ${
+            completedIsOver && dragId ? "outline outline-2 outline-neutral-200" : ""
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            setCompletedIsOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setCompletedIsOver(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setCompletedIsOver(false);
+            handleDrop(e, "Completed");
+          }}
+        >
+          <div className="px-3 py-2 bg-green-50 border-b border-[#efefef]">
+            <div className="flex items-center justify-between">
+              <div className="text-[13px] font-semibold">Completed Projects</div>
+              <div className="text-[12px] text-neutral-500">{completedProjects.length} items</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-5 px-3 py-2 text-[12px] text-neutral-600 bg-neutral-50 border-b border-[#efefef]">
+            <SortableHeader column="name" label="Project" />
+            <SortableHeader column="status" label="Status" />
+            <SortableHeader column="compensation" label="Compensation" />
+            <SortableHeader column="dueDate" label="Due" />
+            <SortableHeader column="leadSource" label="Lead Source" />
+          </div>
+          <div className="min-h-[44px]">
+            {completedProjects.map(renderProjectRow)}
+            {completedProjects.length === 0 && (
+              <div className="px-3 py-8 text-center text-sm text-neutral-500">
+                No completed projects
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -516,10 +768,16 @@ function KanbanColumn({
     const id = e.dataTransfer.getData("text/plain") || draggingId || "";
     if (!id) return;
     onStatusChange(id, title);
+    // Clear dragging state after drop
+    onCardDragEnd();
   }
 
   const [isOver, setIsOver] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const isDraggingOver = draggingId !== null && isOver;
+  const hasMoreCards = projects.length >= 5;
+  const visibleProjects = hasMoreCards && !isExpanded ? projects.slice(0, 4) : projects;
+  const hiddenCount = hasMoreCards && !isExpanded ? projects.length - 4 : 0;
 
   const getStatusIcon = (status: ProjectStatus) => {
     switch (status) {
@@ -551,7 +809,7 @@ function KanbanColumn({
         <div className="text-[15px] font-semibold">{title}</div>
       </div>
       <div className="px-3 pb-3 min-h-[120px]">
-        {projects.map((p) => (
+        {visibleProjects.map((p) => (
           <ProjectCard
             key={p.id}
             project={p}
@@ -560,19 +818,45 @@ function KanbanColumn({
             onDragStart={() => onCardDragStart(p.id)}
             onDragEnd={onCardDragEnd}
             onOpen={() => onOpen(p)}
+            isDragging={draggingId === p.id}
           />
         ))}
+        {hasMoreCards && !isExpanded && (
+          <button
+            onClick={() => setIsExpanded(true)}
+            className="w-full mt-2 mb-3 py-2 px-3 rounded-[10px] border border-[#e5e5e5] bg-white hover:bg-neutral-50 text-sm font-medium text-neutral-700 flex items-center justify-center gap-2 transition-colors"
+          >
+            <PlusIcon className="h-4 w-4" />
+            <span>See {hiddenCount} more</span>
+          </button>
+        )}
       </div>
     </Card>
   );
 }
 
-function ProjectCard({ project, onMove, onDelete, onDragStart, onDragEnd, onOpen }: { project: Project; onMove: (next: ProjectStatus) => void; onDelete: () => void; onDragStart: () => void; onDragEnd: () => void; onOpen: () => void }) {
+function ProjectCard({ project, onMove, onDelete, onDragStart, onDragEnd, onOpen, isDragging = false }: { project: Project; onMove: (next: ProjectStatus) => void; onDelete: () => void; onDragStart: () => void; onDragEnd: () => void; onOpen: () => void; isDragging?: boolean }) {
   const due = classNamesForDue(project.dueDate);
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    const element = e.currentTarget as HTMLElement;
+    // Immediately reset opacity to ensure full visibility
+    element.style.opacity = '1';
+    element.style.transform = '';
+    // Reset all child elements opacity as well
+    const children = element.querySelectorAll('*');
+    children.forEach((child) => {
+      (child as HTMLElement).style.opacity = '1';
+    });
+    onDragEnd();
+  };
 
   return (
     <div
-      className="bg-white border border-[#efefef] rounded-[12px] shadow-sm p-3 mb-3 cursor-grab active:cursor-grabbing"
+      className={`bg-white border border-[#efefef] rounded-[12px] shadow-sm p-3 mb-3 cursor-grab active:cursor-grabbing transition-all ${
+        isDragging ? "opacity-50 scale-95 shadow-lg" : ""
+      }`}
+      style={isDragging ? {} : { opacity: '1', transform: 'scale(1)' }}
       draggable
       onClick={(e) => {
         const target = e.target as HTMLElement;
@@ -584,7 +868,7 @@ function ProjectCard({ project, onMove, onDelete, onDragStart, onDragEnd, onOpen
         e.dataTransfer.effectAllowed = "move";
         onDragStart();
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={handleDragEnd}
     >
       <div className="flex items-center justify-between">
         <div className="text-[14px] font-medium">{project.name}</div>
@@ -614,6 +898,22 @@ function AddProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   const [status, setStatus] = useState<ProjectStatus>("Plan & Film");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Pending");
   const [clientEmail, setClientEmail] = useState("");
+  const [briefType, setBriefType] = useState<"link" | "file">("link");
+  const [briefLink, setBriefLink] = useState("");
+  const [briefFile, setBriefFile] = useState<File | null>(null);
+  const [scriptType, setScriptType] = useState<"link" | "file">("link");
+  const [scriptLink, setScriptLink] = useState("");
+  const [scriptFile, setScriptFile] = useState<File | null>(null);
+
+  const handleFileUpload = (file: File, callback: (data: string, name: string, type: string) => void) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      const base64Data = result.split(",")[1] || result;
+      callback(base64Data, file.name, file.type);
+    };
+    reader.readAsDataURL(file);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -625,9 +925,9 @@ function AddProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate:
         </div>
         <form
           className="space-y-3"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            onCreate({
+            const projectData: Omit<Project, "id"> = {
               name,
               compensation,
               dueDate,
@@ -636,7 +936,29 @@ function AddProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate:
               status,
               paymentStatus,
               clientEmail: clientEmail || undefined,
-            });
+            };
+
+            // Handle brief file upload
+            if (briefType === "file" && briefFile) {
+              const briefFileData = await new Promise<{ data: string; name: string; type: string }>((resolve) => {
+                handleFileUpload(briefFile, (data, name, type) => resolve({ data, name, type }));
+              });
+              projectData.brief = { file: briefFileData };
+            } else if (briefType === "link" && briefLink.trim()) {
+              projectData.brief = { link: briefLink.trim() };
+            }
+
+            // Handle script file upload
+            if (scriptType === "file" && scriptFile) {
+              const scriptFileData = await new Promise<{ data: string; name: string; type: string }>((resolve) => {
+                handleFileUpload(scriptFile, (data, name, type) => resolve({ data, name, type }));
+              });
+              projectData.script = { file: scriptFileData };
+            } else if (scriptType === "link" && scriptLink.trim()) {
+              projectData.script = { link: scriptLink.trim() };
+            }
+
+            onCreate(projectData);
           }}
         >
           <div>
@@ -726,6 +1048,104 @@ function AddProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate:
               placeholder="client@example.com"
             />
           </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[12px] text-neutral-600 mb-1">Project Brief</label>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBriefType("link")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      briefType === "link"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBriefType("file")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      briefType === "file"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    File
+                  </button>
+                </div>
+                {briefType === "link" ? (
+                  <input
+                    type="url"
+                    className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                    value={briefLink}
+                    onChange={(e) => setBriefLink(e.target.value)}
+                    placeholder="https://example.com/brief"
+                  />
+                ) : (
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
+                    className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                    onChange={(e) => setBriefFile(e.target.files?.[0] || null)}
+                  />
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[12px] text-neutral-600 mb-1">Project Script</label>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScriptType("link")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      scriptType === "link"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScriptType("file")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      scriptType === "file"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    File
+                  </button>
+                </div>
+                {scriptType === "link" ? (
+                  <input
+                    type="url"
+                    className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                    value={scriptLink}
+                    onChange={(e) => setScriptLink(e.target.value)}
+                    placeholder="https://example.com/script"
+                  />
+                ) : (
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
+                    className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                    onChange={(e) => setScriptFile(e.target.files?.[0] || null)}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+          
           <div className="flex items-center justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-[10px] px-3 py-2 text-[14px] text-neutral-700 hover:bg-neutral-100">
               Cancel
@@ -749,6 +1169,22 @@ function EditProjectModal({ project, onClose, onSave, onDelete }: { project: Pro
   const [signedDate, setSignedDate] = useState<string>(project.signedDate || "");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(project.paymentStatus || "Pending");
   const [clientEmail, setClientEmail] = useState(project.clientEmail || "");
+  const [briefType, setBriefType] = useState<"link" | "file">(project.brief?.link ? "link" : project.brief?.file ? "file" : "link");
+  const [briefLink, setBriefLink] = useState(project.brief?.link || "");
+  const [briefFile, setBriefFile] = useState<File | null>(null);
+  const [scriptType, setScriptType] = useState<"link" | "file">(project.script?.link ? "link" : project.script?.file ? "file" : "link");
+  const [scriptLink, setScriptLink] = useState(project.script?.link || "");
+  const [scriptFile, setScriptFile] = useState<File | null>(null);
+
+  const handleFileUpload = (file: File, callback: (data: string, name: string, type: string) => void) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      const base64Data = result.split(",")[1] || result;
+      callback(base64Data, file.name, file.type);
+    };
+    reader.readAsDataURL(file);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -760,9 +1196,9 @@ function EditProjectModal({ project, onClose, onSave, onDelete }: { project: Pro
         </div>
         <form
           className="space-y-3"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            onSave({
+            const projectData: Project = {
               ...project,
               name,
               compensation,
@@ -772,7 +1208,39 @@ function EditProjectModal({ project, onClose, onSave, onDelete }: { project: Pro
               status,
               paymentStatus,
               clientEmail: clientEmail || undefined,
-            });
+            };
+
+            // Handle brief file upload
+            if (briefType === "file" && briefFile) {
+              const briefFileData = await new Promise<{ data: string; name: string; type: string }>((resolve) => {
+                handleFileUpload(briefFile, (data, name, type) => resolve({ data, name, type }));
+              });
+              projectData.brief = { file: briefFileData };
+            } else if (briefType === "link" && briefLink.trim()) {
+              projectData.brief = { link: briefLink.trim() };
+            } else if (!briefLink.trim() && !briefFile) {
+              projectData.brief = undefined;
+            } else if (briefType === "file" && project.brief?.file) {
+              // Keep existing file if no new file uploaded
+              projectData.brief = project.brief;
+            }
+
+            // Handle script file upload
+            if (scriptType === "file" && scriptFile) {
+              const scriptFileData = await new Promise<{ data: string; name: string; type: string }>((resolve) => {
+                handleFileUpload(scriptFile, (data, name, type) => resolve({ data, name, type }));
+              });
+              projectData.script = { file: scriptFileData };
+            } else if (scriptType === "link" && scriptLink.trim()) {
+              projectData.script = { link: scriptLink.trim() };
+            } else if (!scriptLink.trim() && !scriptFile) {
+              projectData.script = undefined;
+            } else if (scriptType === "file" && project.script?.file) {
+              // Keep existing file if no new file uploaded
+              projectData.script = project.script;
+            }
+
+            onSave(projectData);
           }}
         >
           <div>
@@ -829,6 +1297,118 @@ function EditProjectModal({ project, onClose, onSave, onDelete }: { project: Pro
               placeholder="client@example.com"
             />
           </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[12px] text-neutral-600 mb-1">Project Brief</label>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBriefType("link")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      briefType === "link"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBriefType("file")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      briefType === "file"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    File
+                  </button>
+                </div>
+                {briefType === "link" ? (
+                  <input
+                    type="url"
+                    className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                    value={briefLink}
+                    onChange={(e) => setBriefLink(e.target.value)}
+                    placeholder="https://example.com/brief"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {project.brief?.file && (
+                      <div className="text-xs text-neutral-500">
+                        Current file: {project.brief.file.name}
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
+                      className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                      onChange={(e) => setBriefFile(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[12px] text-neutral-600 mb-1">Project Script</label>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScriptType("link")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      scriptType === "link"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScriptType("file")}
+                    className={cn(
+                      "flex-1 rounded-[10px] px-2 py-1 text-xs border transition-colors",
+                      scriptType === "file"
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-neutral-700 border-[#e5e5e5] hover:bg-neutral-50"
+                    )}
+                  >
+                    File
+                  </button>
+                </div>
+                {scriptType === "link" ? (
+                  <input
+                    type="url"
+                    className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                    value={scriptLink}
+                    onChange={(e) => setScriptLink(e.target.value)}
+                    placeholder="https://example.com/script"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {project.script?.file && (
+                      <div className="text-xs text-neutral-500">
+                        Current file: {project.script.file.name}
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
+                      className="w-full rounded-[10px] border border-[#e5e5e5] bg-white px-3 py-2 text-[14px]"
+                      onChange={(e) => setScriptFile(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
           <div className="flex items-center justify-between gap-2 pt-2">
             <button type="button" onClick={() => onDelete(project.id)} className="rounded-[10px] px-3 py-2 text-[14px] text-rose-600 hover:bg-rose-50">Delete</button>
             <div className="flex items-center gap-2">
@@ -913,6 +1493,125 @@ function ProjectDetailModal({ project, onClose, onEdit, onDelete, onUpdate }: { 
                     <option>Received</option>
                   </select>
                 </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-6 pt-6 border-t border-[#efefef]">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium text-black mb-2">
+                  Project Brief
+                </div>
+                {project.brief?.link ? (
+                  <a
+                    href={project.brief.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    <span className="text-xs">↗</span>
+                    Open Brief Link
+                  </a>
+                ) : project.brief?.file ? (
+                  <button
+                    onClick={() => {
+                      // Create a blob from base64 data
+                      const byteCharacters = atob(project.brief!.file!.data);
+                      const byteNumbers = new Array(byteCharacters.length);
+                      for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                      }
+                      const byteArray = new Uint8Array(byteNumbers);
+                      const blob = new Blob([byteArray], { type: project.brief!.file!.type });
+                      const url = URL.createObjectURL(blob);
+                      
+                      // Check if file is an image, PDF, or DOC/DOCX that can be opened in browser
+                      const fileType = project.brief!.file!.type.toLowerCase();
+                      const fileName = project.brief!.file!.name.toLowerCase();
+                      const isImage = fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName);
+                      const isPDF = fileType === 'application/pdf' || fileName.endsWith('.pdf');
+                      const isDoc = fileType.includes('document') || /\.(doc|docx)$/i.test(fileName);
+                      
+                      if (isImage || isPDF || isDoc) {
+                        // Open in new tab/window
+                        window.open(url, '_blank');
+                      } else {
+                        // Download for other file types
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = project.brief!.file!.name;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }
+                      // Clean up URL after a delay to allow the browser to open it
+                      setTimeout(() => URL.revokeObjectURL(url), 100);
+                    }}
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    <DownloadIcon className="h-4 w-4" />
+                    {project.brief.file.type?.startsWith('image/') ? 'View' : 'Open'} {project.brief.file.name}
+                  </button>
+                ) : (
+                  <div className="text-sm text-neutral-500">No brief added</div>
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium text-black mb-2">
+                  Project Script
+                </div>
+                {project.script?.link ? (
+                  <a
+                    href={project.script.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    <span className="text-xs">↗</span>
+                    Open Script Link
+                  </a>
+                ) : project.script?.file ? (
+                  <button
+                    onClick={() => {
+                      // Create a blob from base64 data
+                      const byteCharacters = atob(project.script!.file!.data);
+                      const byteNumbers = new Array(byteCharacters.length);
+                      for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                      }
+                      const byteArray = new Uint8Array(byteNumbers);
+                      const blob = new Blob([byteArray], { type: project.script!.file!.type });
+                      const url = URL.createObjectURL(blob);
+                      
+                      // Check if file is an image, PDF, or DOC/DOCX that can be opened in browser
+                      const fileType = project.script!.file!.type.toLowerCase();
+                      const fileName = project.script!.file!.name.toLowerCase();
+                      const isImage = fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName);
+                      const isPDF = fileType === 'application/pdf' || fileName.endsWith('.pdf');
+                      const isDoc = fileType.includes('document') || /\.(doc|docx)$/i.test(fileName);
+                      
+                      if (isImage || isPDF || isDoc) {
+                        // Open in new tab/window
+                        window.open(url, '_blank');
+                      } else {
+                        // Download for other file types
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = project.script!.file!.name;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }
+                      // Clean up URL after a delay to allow the browser to open it
+                      setTimeout(() => URL.revokeObjectURL(url), 100);
+                    }}
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    <DownloadIcon className="h-4 w-4" />
+                    {project.script.file.type?.startsWith('image/') ? 'View' : 'Open'} {project.script.file.name}
+                  </button>
+                ) : (
+                  <div className="text-sm text-neutral-500">No script added</div>
+                )}
               </div>
             </div>
           </div>

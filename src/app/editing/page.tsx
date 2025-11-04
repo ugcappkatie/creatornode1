@@ -65,7 +65,10 @@ export default function EditingPage() {
   const handlePlay = async (id: string) => {
     try {
       if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const AudioContextClass = window.AudioContext || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtxRef.current = new AudioContextClass();
+        }
       }
       const ctx = audioCtxRef.current!;
       const osc = ctx.createOscillator();

@@ -18,7 +18,16 @@ export function getCurrency() {
 }
 
 export function getCurrencySymbol() {
-  return "£";
+  const currency = getCurrency();
+  const symbols: Record<string, string> = {
+    USD: "$",
+    GBP: "£",
+    EUR: "€",
+    CAD: "C$",
+    AUD: "A$",
+    JPY: "¥",
+  };
+  return symbols[currency] || "£";
 }
 
 

@@ -18,7 +18,7 @@ export default function Home() {
     <div className="h-[100dvh] bg-neutral-50">
       <div className="w-full h-full px-5 flex gap-6 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto py-4">
+        <main className="flex-1 overflow-y-auto py-4 pb-8">
           <TopBar timePeriod={timePeriod} onTimePeriodChange={setTimePeriod} />
           <div className="space-y-5">
             <KPIGroup timePeriod={timePeriod} />
